@@ -690,55 +690,52 @@ M.select = function(opts, callback)
   if #entries == 1 and not opts.split and not opts.tab then
     local entry = entries[1]
     if entry.type == "file" and entry.id then
-      local bufname = vim.api.nvim_buf_get_name(0)
-      local scheme, _ = util.parse_url(bufname)
-      if scheme then
-        local src_url = scheme .. cache.get_parent_url(entry.id) .. entry.name
-        local archive_type = conversion.get_archive_type(src_url)
+      local parent_url = cache.get_parent_url(entry.id)
+      local src_url = parent_url .. entry.name
+      local archive_type = conversion.get_archive_type(src_url)
+      
+      if archive_type and config.file_conversions and config.file_conversions.enabled then
+        local basename = entry.name
+        local default_name = basename:match("^(.+)%.[^.]+$") or basename
+        if archive_type:match("^tar%.") then
+          default_name = basename:match("^(.+)%.[^.]+%.[^.]+$") or basename
+        end
         
-        if archive_type and config.file_conversions and config.file_conversions.enabled then
-          local basename = entry.name
-          local default_name = basename:match("^(.+)%.[^.]+$") or basename
-          if archive_type:match("^tar%.") then
-            default_name = basename:match("^(.+)%.[^.]+%.[^.]+$") or basename
+        local choice = vim.fn.confirm(
+          string.format("Extract '%s'?", basename),
+          "&Extract\n&Open file\n&Cancel",
+          1
+        )
+        
+        if choice == 1 then
+          local dest_name = default_name
+          local input = vim.fn.input("Extract to: ", dest_name)
+          if input ~= "" then
+            dest_name = input
           end
           
-          local choice = vim.fn.confirm(
-            string.format("Extract '%s'?", basename),
-            "&Extract\n&Open file\n&Cancel",
-            1
-          )
+          local dest_dir = conversion.get_extraction_dest_dir(src_url, dest_name)
+          local action = {
+            type = "extract",
+            entry_type = entry.type,
+            src_url = src_url,
+            dest_url = dest_dir,
+            dest_name = dest_name,
+            archive_type = archive_type,
+          }
           
-          if choice == 1 then
-            local dest_name = default_name
-            local input = vim.fn.input("Extract to: ", dest_name)
-            if input ~= "" then
-              dest_name = input
+          local mutator = require("oil.mutator")
+          mutator.process_actions({ action }, function(err)
+            if err then
+              vim.notify("Extraction failed: " .. err, vim.log.levels.ERROR)
+            else
+              vim.notify(string.format("Extracted to %s/", dest_name), vim.log.levels.INFO)
+              vim.cmd.edit({ bang = true })
             end
-            
-            local dest_dir = conversion.get_extraction_dest_dir(src_url, dest_name)
-            local action = {
-              type = "extract",
-              entry_type = entry.type,
-              src_url = src_url,
-              dest_url = dest_dir,
-              dest_name = dest_name,
-              archive_type = archive_type,
-            }
-            
-            local mutator = require("oil.mutator")
-            mutator.process_actions({ action }, function(err)
-              if err then
-                vim.notify("Extraction failed: " .. err, vim.log.levels.ERROR)
-              else
-                vim.notify(string.format("Extracted to %s/", dest_name), vim.log.levels.INFO)
-                vim.cmd.edit({ bang = true })
-              end
-            end)
-            return finish()
-          elseif choice == 3 then
-            return finish()
-          end
+          end)
+          return finish()
+        elseif choice == 3 then
+          return finish()
         end
       end
     end

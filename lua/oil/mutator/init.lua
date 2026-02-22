@@ -65,6 +65,7 @@ local FIELD_TYPE = constants.FIELD_TYPE
 ---@field dest_url string
 ---@field dest_name string
 ---@field archive_type string
+---@field archive_contents? string[] Preview of archive contents
 
 ---@param all_diffs table<integer, oil.Diff[]>
 ---@return oil.Action[]
@@ -669,43 +670,110 @@ M.try_write_changes = function(confirm, cb)
   end
 
   local actions = M.create_actions_from_diffs(all_diffs)
-  confirmation.show(actions, confirm, function(proceed)
-    if not proceed then
-      unlock()
-      cb("Canceled")
-      return
+  
+  local function enrich_and_confirm()
+    local extract_actions = {}
+    for _, action in ipairs(actions) do
+      if action.type == "extract" then
+        table.insert(extract_actions, action)
+      end
     end
-
-    M.process_actions(
-      actions,
-      vim.schedule_wrap(function(err)
-        view.unlock_buffers()
-        if err then
-          err = string.format("[oil] Error applying actions: %s", err)
-          view.rerender_all_oil_buffers(nil, function()
-            cb(err)
+    
+    if #extract_actions > 0 then
+      local pending = #extract_actions
+      for _, action in ipairs(extract_actions) do
+        local _, src_path = util.parse_url(action.src_url)
+        if src_path then
+          src_path = fs.posix_to_os_path(src_path)
+          conversion.list_archive_contents(src_path, action.archive_type, function(err, contents)
+            if not err and contents then
+              action.archive_contents = contents
+            end
+            pending = pending - 1
+            if pending == 0 then
+              confirmation.show(actions, confirm, function(proceed)
+                if not proceed then
+                  unlock()
+                  cb("Canceled")
+                  return
+                end
+                
+                M.process_actions(
+                  actions,
+                  vim.schedule_wrap(function(err2)
+                    view.unlock_buffers()
+                    if err2 then
+                      err2 = string.format("[oil] Error applying actions: %s", err2)
+                      view.rerender_all_oil_buffers(nil, function()
+                        cb(err2)
+                      end)
+                    else
+                      local current_entry = oil.get_cursor_entry()
+                      if current_entry then
+                        view.set_last_cursor(
+                          vim.api.nvim_buf_get_name(0),
+                          vim.split(current_entry.parsed_name or current_entry.name, "/")[1]
+                        )
+                      end
+                      view.rerender_all_oil_buffers(nil, function(render_err)
+                        vim.api.nvim_exec_autocmds(
+                          "User",
+                          { pattern = "OilMutationComplete", modeline = false }
+                        )
+                        cb(render_err)
+                      end)
+                    end
+                    mutation_in_progress = false
+                  end)
+                )
+              end)
+            end
           end)
         else
-          local current_entry = oil.get_cursor_entry()
-          if current_entry then
-            -- get the entry under the cursor and make sure the cursor stays on it
-            view.set_last_cursor(
-              vim.api.nvim_buf_get_name(0),
-              vim.split(current_entry.parsed_name or current_entry.name, "/")[1]
-            )
-          end
-          view.rerender_all_oil_buffers(nil, function(render_err)
-            vim.api.nvim_exec_autocmds(
-              "User",
-              { pattern = "OilMutationComplete", modeline = false }
-            )
-            cb(render_err)
-          end)
+          pending = pending - 1
         end
-        mutation_in_progress = false
+      end
+    else
+      confirmation.show(actions, confirm, function(proceed)
+        if not proceed then
+          unlock()
+          cb("Canceled")
+          return
+        end
+        
+        M.process_actions(
+          actions,
+          vim.schedule_wrap(function(err)
+            view.unlock_buffers()
+            if err then
+              err = string.format("[oil] Error applying actions: %s", err)
+              view.rerender_all_oil_buffers(nil, function()
+                cb(err)
+              end)
+            else
+              local current_entry = oil.get_cursor_entry()
+              if current_entry then
+                view.set_last_cursor(
+                  vim.api.nvim_buf_get_name(0),
+                  vim.split(current_entry.parsed_name or current_entry.name, "/")[1]
+                )
+              end
+              view.rerender_all_oil_buffers(nil, function(render_err)
+                vim.api.nvim_exec_autocmds(
+                  "User",
+                  { pattern = "OilMutationComplete", modeline = false }
+                )
+                cb(render_err)
+              end)
+            end
+            mutation_in_progress = false
+          end)
+        )
       end)
-    )
-  end)
+    end
+  end
+  
+  enrich_and_confirm()
 end
 
 return M

@@ -160,13 +160,13 @@ M.is_extraction_trigger = function(dest_url)
 end
 
 M.get_extraction_dest_dir = function(src_url, trigger_name)
-  local _, src_path = util.parse_url(src_url)
+  local scheme, src_path = util.parse_url(src_url)
   if not src_path then return nil end
   
   local parent = vim.fn.fnamemodify(src_path, ":h")
-  local dest_dir = parent .. "/" .. trigger_name .. "/"
+  local dest_path = parent .. "/" .. trigger_name .. "/"
   
-  return dest_dir
+  return (scheme or "oil://") .. dest_path
 end
 
 M.get_extract_command = function(src_path, dest_dir, ext)

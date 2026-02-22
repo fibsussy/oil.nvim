@@ -75,19 +75,21 @@ M.show = vim.schedule_wrap(function(actions, should_confirm, cb)
   local max_line_width = 0
   for _, action in ipairs(actions) do
     local adapter = util.get_adapter_for_action(action)
-    local line
+    local rendered
     if action.type == "change" then
       ---@cast action oil.ChangeAction
-      line = columns.render_change_action(adapter, action)
+      rendered = columns.render_change_action(adapter, action)
     else
-      line = adapter.render_action(action)
+      rendered = adapter.render_action(action)
     end
-    -- We can't handle lines with newlines in them
-    line = line:gsub("\n", "")
-    table.insert(lines, line)
-    local line_width = vim.api.nvim_strwidth(line)
-    if line_width > max_line_width then
-      max_line_width = line_width
+    -- Handle multi-line action renders (e.g., archive preview)
+    local action_lines = vim.split(rendered, "\n", { plain = true })
+    for _, line in ipairs(action_lines) do
+      table.insert(lines, line)
+      local line_width = vim.api.nvim_strwidth(line)
+      if line_width > max_line_width then
+        max_line_width = line_width
+      end
     end
   end
   table.insert(lines, "")

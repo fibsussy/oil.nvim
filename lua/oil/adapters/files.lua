@@ -571,12 +571,29 @@ M.render_action = function(action)
   elseif action.type == "extract" then
     local _, src_path = util.parse_url(action.src_url)
     assert(src_path)
-    local dest_display = action.dest_name or vim.fs.basename(action.dest_url)
-    return string.format(
+    local dest_display = action.dest_name or vim.fn.fnamemodify(action.dest_url, ":t")
+    local line = string.format(
       "EXTRACT %s -> %s/",
       M.to_short_os_path(src_path, action.entry_type),
       dest_display
     )
+    if action.archive_contents and #action.archive_contents > 0 then
+      local num_files = #action.archive_contents
+      local preview_count = math.min(3, num_files)
+      line = line .. string.format(" (%d files", num_files)
+      for i = 1, preview_count do
+        local name = action.archive_contents[i]
+        if name then
+          name = vim.fs.basename(name) or name
+          line = line .. string.format("\n    %s", name)
+        end
+      end
+      if num_files > preview_count then
+        line = line .. string.format("\n    ... and %d more", num_files - preview_count)
+      end
+      line = line .. ")"
+    end
+    return line
   else
     error(string.format("Bad action type: '%s'", action.type))
   end
@@ -685,6 +702,11 @@ M.perform_action = function(action, cb)
     src_path = fs.posix_to_os_path(src_path)
     dest_path = fs.posix_to_os_path(dest_path)
     
+    local tool = conversion.get_converter_tool(action.conversion_type)
+    if tool and vim.fn.executable(tool) ~= 1 then
+      return cb(string.format("Conversion tool '%s' not found. Please install it.", tool))
+    end
+    
     local cmd = conversion.get_conversion_command(
       src_path, dest_path, action.conversion_type, action.src_ext, action.dest_ext
     )
@@ -716,6 +738,10 @@ M.perform_action = function(action, cb)
     
     if not extract_cmd then
       return cb(string.format("No extractor configured for archive type: %s", action.archive_type))
+    end
+    
+    if vim.fn.executable(extract_cmd) ~= 1 then
+      return cb(string.format("Extraction tool '%s' not found. Please install it.", extract_cmd))
     end
     
     fs.mkdirp(dest_path)
