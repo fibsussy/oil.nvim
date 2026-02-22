@@ -23,35 +23,35 @@ document.md -> document.pdf   (pandoc conversion)
 audio.mp3 -> audio.wav        (ffmpeg audio conversion)
 ```
 
-## Implementation Plan
+## Implementation Status
 
-### Phase 1: Core Infrastructure
+### Phase 1: Core Infrastructure ✅
 - [x] Fork repo and create feature branch
 - [x] Add `file_conversions` config option
 - [x] Create conversion module (`lua/oil/conversion.lua`)
 - [x] Hook into copy action detection in mutator
 
-### Phase 2: Action Handling
+### Phase 2: Action Handling ✅
 - [x] Detect extension changes in copy/move actions
 - [x] Create new `convert` action type
 - [x] Create new `extract` action type
 - [x] Render conversion actions in confirmation popup
 - [x] Execute conversions with progress indication
 
-### Phase 3: Archive Handling
+### Phase 3: Archive Handling ✅
 - [x] Detect `.unzip` / `.untar` destination patterns
 - [x] Create `extract` action type
 - [x] Fix extraction to use proper directory name (without .unzip)
 - [x] Add `extract_archive` action for manual extraction
 - [x] Hook into select (Enter) to detect archives and offer extraction
 
-### Phase 4: Polish
+### Phase 4: Polish ✅
 - [x] Add configuration for custom converters
 - [x] Handle errors gracefully
+- [x] Add archive preview in confirmation popup (shows file count)
+- [x] Handle missing conversion tools (magick, ffmpeg, unzip, etc.)
 - [ ] Add documentation
 - [ ] Write tests
-- [ ] Archive preview in confirmation popup (optional)
-- [ ] Handle missing conversion tools gracefully (check tool availability)
 
 ## Config Structure (Implemented)
 
@@ -99,7 +99,8 @@ file_conversions = {
 4. `lua/oil/cache.lua` - Added cache handling for new action types
 5. `lua/oil/init.lua` - Added archive detection in select action
 6. `lua/oil/actions.lua` - Added extract_archive action
-7. NEW `lua/oil/conversion.lua` - Conversion detection and command generation
+7. `lua/oil/mutator/confirmation.lua` - Support multi-line action rendering
+8. NEW `lua/oil/conversion.lua` - Conversion detection and command generation
 
 ## Usage Examples
 
@@ -130,7 +131,7 @@ file_conversions = {
 ### Archive extraction (via rename)
 1. In oil buffer, copy `archive.zip` to `archive.unzip`
 2. Save with `:w`
-3. Confirmation popup shows: `EXTRACT archive.zip -> archive/`
+3. Confirmation popup shows: `EXTRACT archive.zip -> archive/ (X files...)`
 4. Confirm, and unzip extracts to `archive/` directory
 
 ### Archive extraction (via Enter)
@@ -139,9 +140,28 @@ file_conversions = {
 3. Choose "Extract" and optionally customize the destination name
 4. Archive extracts to the specified directory
 
-## Known Issues / TODO
+### Manual extraction keymap
+Add to your config:
+```lua
+keymaps = {
+  ["<leader>x"] = "actions.extract_archive",
+}
+```
 
-- Need to verify `magick` or `ffmpeg` commands are available before conversion
-- Archive preview in confirmation window (show file list)
-- Handle missing conversion tools gracefully
-- Support for custom ffmpeg encoding options (CRF, presets, etc.)
+## Required Tools
+
+| Feature | Tool | Check |
+|---------|------|-------|
+| Image conversion | `magick` (ImageMagick) | `magick --version` |
+| Video/Audio conversion | `ffmpeg` | `ffmpeg -version` |
+| ZIP extraction | `unzip` | `unzip -v` |
+| TAR.GZ extraction | `tar` | `tar --version` |
+| 7z extraction | `7z` | `7z --help` |
+| RAR extraction | `unrar` | `unrar --help` |
+
+## TODO / Known Issues
+
+- Add comprehensive tests
+- Support for custom ffmpeg encoding options (CRF, presets)
+- Video to GIF conversion quality settings
+- Better progress indication for large files
