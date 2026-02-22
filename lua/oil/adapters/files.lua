@@ -571,12 +571,11 @@ M.render_action = function(action)
   elseif action.type == "extract" then
     local _, src_path = util.parse_url(action.src_url)
     assert(src_path)
-    local _, dest_path = util.parse_url(action.dest_url)
-    assert(dest_path)
+    local dest_display = action.dest_name or vim.fs.basename(action.dest_url)
     return string.format(
-      "EXTRACT %s -> %s",
+      "EXTRACT %s -> %s/",
       M.to_short_os_path(src_path, action.entry_type),
-      M.to_short_os_path(dest_path, "directory")
+      dest_display
     )
   else
     error(string.format("Bad action type: '%s'", action.type))

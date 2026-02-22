@@ -11,6 +11,83 @@ M.show_help = {
   desc = "Show default keymaps",
 }
 
+M.extract_archive = {
+  desc = "Extract the archive under the cursor",
+  callback = function(opts)
+    opts = opts or {}
+    local entry = oil.get_cursor_entry()
+    if not entry then
+      vim.notify("Could not find entry under cursor", vim.log.levels.ERROR)
+      return
+    end
+    
+    local conversion = require("oil.conversion")
+    local config = require("oil.config")
+    local cache = require("oil.cache")
+    
+    local bufname = vim.api.nvim_buf_get_name(0)
+    local scheme, _ = util.parse_url(bufname)
+    if not scheme then return end
+    
+    local src_url = scheme .. cache.get_parent_url(entry.id) .. entry.name
+    local archive_type = conversion.get_archive_type(src_url)
+    
+    if not archive_type then
+      vim.notify("Not an archive file", vim.log.levels.WARN)
+      return
+    end
+    
+    local basename = entry.name
+    local default_name = basename:match("^(.+)%.[^.]+$") or basename
+    if archive_type:match("^tar%.") then
+      default_name = basename:match("^(.+)%.[^.]+%.[^.]+$") or basename
+    end
+    
+    local dest_name = opts.dest_name or default_name
+    local dest_dir = conversion.get_extraction_dest_dir(src_url, dest_name)
+    
+    local choice = vim.fn.confirm(
+      string.format("Extract '%s' to '%s/'?", basename, dest_name),
+      "&Yes\n&No\n&Custom name",
+      1
+    )
+    
+    if choice == 0 or choice == 2 then
+      return
+    elseif choice == 3 then
+      local input = vim.fn.input("Extract to: ", dest_name)
+      if input == "" then return end
+      dest_name = input
+      dest_dir = conversion.get_extraction_dest_dir(src_url, dest_name)
+    end
+    
+    local action = {
+      type = "extract",
+      entry_type = entry.type,
+      src_url = src_url,
+      dest_url = dest_dir,
+      dest_name = dest_name,
+      archive_type = archive_type,
+    }
+    
+    local mutator = require("oil.mutator")
+    mutator.process_actions({ action }, function(err)
+      if err then
+        vim.notify("Extraction failed: " .. err, vim.log.levels.ERROR)
+      else
+        vim.notify(string.format("Extracted to %s/", dest_name), vim.log.levels.INFO)
+        vim.cmd.edit({ bang = true })
+      end
+    end)
+  end,
+  parameters = {
+    dest_name = {
+      type = "string",
+      desc = "Destination directory name (without extension)",
+    },
+  },
+}
+
 M.select = {
   desc = "Open the entry under the cursor",
   callback = function(opts)

@@ -28,15 +28,22 @@ local default_converters = {
 local video_to_gif_extensions = { gif = true }
 
 local default_extractors = {
-  zip = { cmd = "unzip", args = { "-o", "$SRC", "-d", "$DIR" } },
-  ["tar.gz"] = { cmd = "tar", args = { "-xzf", "$SRC", "-C", "$DIR" } },
-  ["tar.xz"] = { cmd = "tar", args = { "-xJf", "$SRC", "-C", "$DIR" } },
-  ["tar.bz2"] = { cmd = "tar", args = { "-xjf", "$SRC", "-C", "$DIR" } },
-  ["tar"] = { cmd = "tar", args = { "-xf", "$SRC", "-C", "$DIR" } },
+  zip = { cmd = "unzip", args = { "-o", "$SRC", "-d", "$DIR" }, list_cmd = { "unzip", "-l", "$SRC" } },
+  ["tar.gz"] = { cmd = "tar", args = { "-xzf", "$SRC", "-C", "$DIR" }, list_cmd = { "tar", "-tzf", "$SRC" } },
+  ["tar.xz"] = { cmd = "tar", args = { "-xJf", "$SRC", "-C", "$DIR" }, list_cmd = { "tar", "-tJf", "$SRC" } },
+  ["tar.bz2"] = { cmd = "tar", args = { "-xjf", "$SRC", "-C", "$DIR" }, list_cmd = { "tar", "-tjf", "$SRC" } },
+  ["tar"] = { cmd = "tar", args = { "-xf", "$SRC", "-C", "$DIR" }, list_cmd = { "tar", "-tf", "$SRC" } },
   gz = { cmd = "gunzip", args = { "-k", "$SRC" }, single_file = true },
   bz2 = { cmd = "bunzip2", args = { "-k", "$SRC" }, single_file = true },
   xz = { cmd = "unxz", args = { "-k", "$SRC" }, single_file = true },
+  ["7z"] = { cmd = "7z", args = { "x", "$SRC", "-o$DIR", "-y" }, list_cmd = { "7z", "l", "$SRC" } },
+  rar = { cmd = "unrar", args = { "x", "-y", "$SRC", "$DIR/" }, list_cmd = { "unrar", "l", "$SRC" } },
 }
+
+local archive_extensions = {}
+for ext, _ in pairs(default_extractors) do
+  archive_extensions[ext] = true
+end
 
 M.get_file_extension = function(filename)
   local basename = vim.fs.basename(filename)
@@ -51,6 +58,32 @@ M.get_file_extension = function(filename)
   if ext then
     return ext:sub(2):lower()
   end
+  return nil
+end
+
+M.is_archive = function(url)
+  local ext = M.get_file_extension(url)
+  if not ext then return false end
+  
+  local extractors = config.file_conversions and config.file_conversions.extractors or default_extractors
+  local user_archive_exts = config.file_conversions and config.file_conversions.archive_extensions
+  
+  if user_archive_exts then
+    return user_archive_exts[ext] == true
+  end
+  
+  return extractors[ext] ~= nil
+end
+
+M.get_archive_type = function(url)
+  local ext = M.get_file_extension(url)
+  if not ext then return nil end
+  
+  local extractors = config.file_conversions and config.file_conversions.extractors or default_extractors
+  if extractors[ext] then
+    return ext
+  end
+  
   return nil
 end
 
@@ -100,7 +133,7 @@ M.is_conversion = function(src_url, dest_url)
   return false
 end
 
-M.is_extraction = function(dest_url)
+M.is_extraction_trigger = function(dest_url)
   local conversion_config = config.file_conversions
   if not conversion_config or not conversion_config.enabled then
     return false
@@ -112,15 +145,13 @@ M.is_extraction = function(dest_url)
   local dst_ext = M.get_file_extension(dst_path)
   if not dst_ext then return false end
   
-  local extractors = conversion_config.extractors or default_extractors
-  
   local extract_patterns = { "unzip", "untar", "extract", "unpack" }
   for _, pattern in ipairs(extract_patterns) do
     if dst_ext == pattern then
       local basename = vim.fs.basename(dst_path)
-      local src_name = basename:match("^(.+)%." .. pattern .. "$")
-      if src_name then
-        return true, src_name
+      local dest_name = basename:match("^(.+)%." .. pattern .. "$")
+      if dest_name then
+        return true, dest_name
       end
     end
   end
@@ -128,10 +159,14 @@ M.is_extraction = function(dest_url)
   return false
 end
 
-M.get_src_extension_for_extraction = function(src_url)
-  local ext = M.get_file_extension(src_url)
-  local extractors = config.file_conversions and config.file_conversions.extractors or default_extractors
-  return extractors[ext] and ext
+M.get_extraction_dest_dir = function(src_url, trigger_name)
+  local _, src_path = util.parse_url(src_url)
+  if not src_path then return nil end
+  
+  local parent = vim.fn.fnamemodify(src_path, ":h")
+  local dest_dir = parent .. "/" .. trigger_name .. "/"
+  
+  return dest_dir
 end
 
 M.get_extract_command = function(src_path, dest_dir, ext)
@@ -181,13 +216,17 @@ M.get_conversion_command = function(src_path, dest_path, conv_type, src_ext, dst
 end
 
 M.list_archive_contents = function(src_path, ext, cb)
-  local list_cmd
-  if ext == "zip" then
-    list_cmd = { "unzip", "-l", src_path }
-  elseif ext:match("^tar") then
-    list_cmd = { "tar", "-tf", src_path }
-  else
+  local extractors = config.file_conversions and config.file_conversions.extractors or default_extractors
+  local extractor = extractors[ext] or default_extractors[ext]
+  
+  if not extractor or not extractor.list_cmd then
     return cb(nil, {})
+  end
+  
+  local list_cmd = {}
+  for _, part in ipairs(extractor.list_cmd) do
+    part = part:gsub("$SRC", src_path)
+    table.insert(list_cmd, part)
   end
   
   local contents = {}
@@ -201,9 +240,14 @@ M.list_archive_contents = function(src_path, ext, cb)
             if name and not name:match("^%s*$") and not name:match("/$") then
               table.insert(contents, name)
             end
+          elseif ext == "7z" then
+            local name = line:match("^.-:%s*(.+)$") or line:match("^%S+%s+(.+)$")
+            if name and not name:match("^%s*$") then
+              table.insert(contents, vim.trim(name))
+            end
           else
-            local name = line:match("^[^/]+/(.+)$") or line
-            if name and name ~= "" then
+            local name = line:gsub("^%./", "")
+            if name and name ~= "" and not name:match("/$") then
               table.insert(contents, name)
             end
           end
@@ -222,6 +266,19 @@ M.list_archive_contents = function(src_path, ext, cb)
   if jid <= 0 then
     cb("Failed to start archive list command", nil)
   end
+end
+
+M.check_tool_available = function(tool)
+  return vim.fn.executable(tool) == 1
+end
+
+M.get_converter_tool = function(conv_type)
+  if conv_type == "image" then
+    return "magick"
+  elseif conv_type == "video" or conv_type == "audio" then
+    return "ffmpeg"
+  end
+  return nil
 end
 
 return M

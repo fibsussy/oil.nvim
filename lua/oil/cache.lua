@@ -204,7 +204,10 @@ M.perform_action = function(action)
     local scheme, path = util.parse_url(action.dest_url)
     assert(path)
     local parent_url = util.addslash(scheme .. vim.fn.fnamemodify(path, ":h"))
-    local name = vim.fn.fnamemodify(path, ":t")
+    local name = action.dest_name or vim.fn.fnamemodify(path, ":t")
+    if not vim.endswith(name, "/") then
+      name = name .. "/"
+    end
     M.create_and_store_entry(parent_url, name, "directory")
   elseif action.type == "change" then
     -- Cache doesn't need to update

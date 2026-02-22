@@ -13,11 +13,11 @@ video.mp4 -> video.gif      (converts video to gif)
 
 ### 2. Archive Extraction  
 ```
-something.zip -> something.unzip   (extracts archive)
-something.tar.gz -> something.untar (extracts tarball)
+something.zip -> something.unzip   (extracts archive to something/)
+Press Enter on archive.zip -> prompt to extract
 ```
 
-### 3. Other Conversions (future)
+### 3. Other Conversions
 ```
 document.md -> document.pdf   (pandoc conversion)
 audio.mp3 -> audio.wav        (ffmpeg audio conversion)
@@ -41,13 +41,17 @@ audio.mp3 -> audio.wav        (ffmpeg audio conversion)
 ### Phase 3: Archive Handling
 - [x] Detect `.unzip` / `.untar` destination patterns
 - [x] Create `extract` action type
-- [ ] Show archive contents preview in confirmation (optional enhancement)
+- [x] Fix extraction to use proper directory name (without .unzip)
+- [x] Add `extract_archive` action for manual extraction
+- [x] Hook into select (Enter) to detect archives and offer extraction
 
 ### Phase 4: Polish
-- [ ] Add configuration for custom converters
-- [ ] Handle errors gracefully
+- [x] Add configuration for custom converters
+- [x] Handle errors gracefully
 - [ ] Add documentation
 - [ ] Write tests
+- [ ] Archive preview in confirmation popup (optional)
+- [ ] Handle missing conversion tools gracefully (check tool availability)
 
 ## Config Structure (Implemented)
 
@@ -81,6 +85,8 @@ file_conversions = {
     ["tar.xz"] = { cmd = "tar", args = { "-xJf", "$SRC", "-C", "$DIR" } },
     ["tar.bz2"] = { cmd = "tar", args = { "-xjf", "$SRC", "-C", "$DIR" } },
     ["tar"] = { cmd = "tar", args = { "-xf", "$SRC", "-C", "$DIR" } },
+    ["7z"] = { cmd = "7z", args = { "x", "$SRC", "-o$DIR", "-y" } },
+    rar = { cmd = "unrar", args = { "x", "-y", "$SRC", "$DIR/" } },
   },
 }
 ```
@@ -91,7 +97,9 @@ file_conversions = {
 2. `lua/oil/mutator/init.lua` - Added convert/extract action types and detection
 3. `lua/oil/adapters/files.lua` - Added render and perform handlers
 4. `lua/oil/cache.lua` - Added cache handling for new action types
-5. NEW `lua/oil/conversion.lua` - Conversion detection and command generation
+5. `lua/oil/init.lua` - Added archive detection in select action
+6. `lua/oil/actions.lua` - Added extract_archive action
+7. NEW `lua/oil/conversion.lua` - Conversion detection and command generation
 
 ## Usage Examples
 
@@ -119,11 +127,17 @@ file_conversions = {
 3. Confirmation popup shows: `CONVERT clip.mp4 -> clip.gif (mp4 -> gif)`
 4. Confirm, and ffmpeg converts the video to a GIF
 
-### Archive extraction
+### Archive extraction (via rename)
 1. In oil buffer, copy `archive.zip` to `archive.unzip`
 2. Save with `:w`
 3. Confirmation popup shows: `EXTRACT archive.zip -> archive/`
-4. Confirm, and unzip extracts to a directory
+4. Confirm, and unzip extracts to `archive/` directory
+
+### Archive extraction (via Enter)
+1. In oil buffer, press Enter on `archive.zip`
+2. Prompt appears: "Extract 'archive.zip'?"
+3. Choose "Extract" and optionally customize the destination name
+4. Archive extracts to the specified directory
 
 ## Known Issues / TODO
 

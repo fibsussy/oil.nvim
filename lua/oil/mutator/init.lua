@@ -63,6 +63,7 @@ local FIELD_TYPE = constants.FIELD_TYPE
 ---@field entry_type oil.EntryType
 ---@field src_url string
 ---@field dest_url string
+---@field dest_name string
 ---@field archive_type string
 
 ---@param all_diffs table<integer, oil.Diff[]>
@@ -193,16 +194,18 @@ M.create_actions_from_diffs = function(all_diffs)
               dest_ext = dst_ext,
             })
           else
-            local is_extract, extract_src = conversion.is_extraction(dest_url)
+            local is_extract, extract_name = conversion.is_extraction_trigger(dest_url)
             if is_extract then
-              local src_ext_for_extract = conversion.get_src_extension_for_extraction(src_url)
-              if src_ext_for_extract then
+              local archive_type = conversion.get_archive_type(src_url)
+              if archive_type then
+                local dest_dir = conversion.get_extraction_dest_dir(src_url, extract_name)
                 add_action({
                   type = "extract",
                   entry_type = entry[FIELD_TYPE],
                   src_url = src_url,
-                  dest_url = dest_url,
-                  archive_type = src_ext_for_extract,
+                  dest_url = dest_dir,
+                  dest_name = extract_name,
+                  archive_type = archive_type,
                 })
               else
                 add_action({
@@ -248,16 +251,18 @@ M.create_actions_from_diffs = function(all_diffs)
             dest_ext = dst_ext,
           })
         else
-          local is_extract, extract_src = conversion.is_extraction(dest_url)
+          local is_extract, extract_name = conversion.is_extraction_trigger(dest_url)
           if is_extract then
-            local src_ext_for_extract = conversion.get_src_extension_for_extraction(src_url)
-            if src_ext_for_extract then
+            local archive_type = conversion.get_archive_type(src_url)
+            if archive_type then
+              local dest_dir = conversion.get_extraction_dest_dir(src_url, extract_name)
               add_action({
                 type = "extract",
                 entry_type = entry[FIELD_TYPE],
                 src_url = src_url,
-                dest_url = dest_url,
-                archive_type = src_ext_for_extract,
+                dest_url = dest_dir,
+                dest_name = extract_name,
+                archive_type = archive_type,
               })
             else
               add_action({
