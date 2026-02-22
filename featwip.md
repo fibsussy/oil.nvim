@@ -56,9 +56,21 @@ file_conversions = {
   enabled = true,
   converters = {
     image = {
-      extensions = { png = true, jpg = true, jpeg = true, gif = true, webp = true, bmp = true, tiff = true },
+      extensions = { png = true, jpg = true, jpeg = true, gif = true, webp = true, bmp = true, tiff = true, ico = true, heic = true, heif = true, avif = true },
       get_command = function(src, dst, src_ext, dst_ext)
         return { "magick", src, dst }
+      end,
+    },
+    video = {
+      extensions = { mp4 = true, mkv = true, avi = true, mov = true, webm = true, flv = true, wmv = true, m4v = true },
+      get_command = function(src, dst, src_ext, dst_ext)
+        return { "ffmpeg", "-y", "-i", src, dst }
+      end,
+    },
+    audio = {
+      extensions = { mp3 = true, wav = true, flac = true, aac = true, ogg = true, m4a = true, wma = true, opus = true },
+      get_command = function(src, dst, src_ext, dst_ext)
+        return { "ffmpeg", "-y", "-i", src, dst }
       end,
     },
     custom = {},  -- Array of { from = "md", to = "pdf", cmd = "pandoc {src} -o {dst}" }
@@ -89,6 +101,24 @@ file_conversions = {
 3. Confirmation popup shows: `CONVERT photo.jpeg -> photo.png (jpeg -> png)`
 4. Confirm, and imagemagick converts the file
 
+### Video conversion
+1. In oil buffer, rename `video.mkv` to `video.mp4`
+2. Save with `:w`
+3. Confirmation popup shows: `CONVERT video.mkv -> video.mp4 (mkv -> mp4)`
+4. Confirm, and ffmpeg converts the file
+
+### Audio conversion
+1. In oil buffer, rename `song.flac` to `song.mp3`
+2. Save with `:w`
+3. Confirmation popup shows: `CONVERT song.flac -> song.mp3 (flac -> mp3)`
+4. Confirm, and ffmpeg converts the file
+
+### Video to GIF
+1. In oil buffer, rename `clip.mp4` to `clip.gif`
+2. Save with `:w`
+3. Confirmation popup shows: `CONVERT clip.mp4 -> clip.gif (mp4 -> gif)`
+4. Confirm, and ffmpeg converts the video to a GIF
+
 ### Archive extraction
 1. In oil buffer, copy `archive.zip` to `archive.unzip`
 2. Save with `:w`
@@ -97,7 +127,7 @@ file_conversions = {
 
 ## Known Issues / TODO
 
-- Need to verify `magick` command is available before conversion
+- Need to verify `magick` or `ffmpeg` commands are available before conversion
 - Archive preview in confirmation window (show file list)
 - Handle missing conversion tools gracefully
-- Support for video conversions with ffmpeg
+- Support for custom ffmpeg encoding options (CRF, presets, etc.)

@@ -9,9 +9,21 @@ local default_config = {
     enabled = true,
     converters = {
       image = {
-        extensions = { png = true, jpg = true, jpeg = true, gif = true, webp = true, bmp = true, tiff = true },
+        extensions = { png = true, jpg = true, jpeg = true, gif = true, webp = true, bmp = true, tiff = true, ico = true, heic = true, heif = true, avif = true },
         get_command = function(src, dst, src_ext, dst_ext)
           return { "magick", src, dst }
+        end,
+      },
+      video = {
+        extensions = { mp4 = true, mkv = true, avi = true, mov = true, webm = true, flv = true, wmv = true, m4v = true },
+        get_command = function(src, dst, src_ext, dst_ext)
+          return { "ffmpeg", "-y", "-i", src, dst }
+        end,
+      },
+      audio = {
+        extensions = { mp3 = true, wav = true, flac = true, aac = true, ogg = true, m4a = true, wma = true, opus = true },
+        get_command = function(src, dst, src_ext, dst_ext)
+          return { "ffmpeg", "-y", "-i", src, dst }
         end,
       },
       custom = {},

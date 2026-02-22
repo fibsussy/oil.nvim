@@ -6,12 +6,26 @@ local M = {}
 
 local default_converters = {
   image = {
-    extensions = { png = true, jpg = true, jpeg = true, gif = true, webp = true, bmp = true, tiff = true },
+    extensions = { png = true, jpg = true, jpeg = true, gif = true, webp = true, bmp = true, tiff = true, ico = true, heic = true, heif = true, avif = true },
     get_command = function(src, dst, src_ext, dst_ext)
       return { "magick", src, dst }
     end,
   },
+  video = {
+    extensions = { mp4 = true, mkv = true, avi = true, mov = true, webm = true, flv = true, wmv = true, m4v = true },
+    get_command = function(src, dst, src_ext, dst_ext)
+      return { "ffmpeg", "-y", "-i", src, dst }
+    end,
+  },
+  audio = {
+    extensions = { mp3 = true, wav = true, flac = true, aac = true, ogg = true, m4a = true, wma = true, opus = true },
+    get_command = function(src, dst, src_ext, dst_ext)
+      return { "ffmpeg", "-y", "-i", src, dst }
+    end,
+  },
 }
+
+local video_to_gif_extensions = { gif = true }
 
 local default_extractors = {
   zip = { cmd = "unzip", args = { "-o", "$SRC", "-d", "$DIR" } },
@@ -58,10 +72,23 @@ M.is_conversion = function(src_url, dest_url)
   end
   
   local converters = conversion_config.converters or {}
-  local image_converters = converters.image or default_converters.image
   
-  if image_converters.extensions[src_ext] and image_converters.extensions[dst_ext] then
-    return true, "image", src_ext, dst_ext
+  for conv_type, default_conv in pairs(default_converters) do
+    local conv_config = converters[conv_type] or default_conv
+    local exts = conv_config.extensions or default_conv.extensions
+    
+    if exts[src_ext] and exts[dst_ext] then
+      return true, conv_type, src_ext, dst_ext
+    end
+  end
+  
+  if converters.video and converters.video.extensions then
+    local video_exts = converters.video.extensions
+    if video_exts[src_ext] and video_to_gif_extensions[dst_ext] then
+      return true, "video", src_ext, dst_ext
+    end
+  elseif default_converters.video.extensions[src_ext] and video_to_gif_extensions[dst_ext] then
+    return true, "video", src_ext, dst_ext
   end
   
   for _, custom in ipairs(converters.custom or {}) do
@@ -141,9 +168,13 @@ M.get_conversion_command = function(src_path, dest_path, conv_type, src_ext, dst
     end
   end
   
-  local image_converters = converters.image or default_converters.image
-  if image_converters.get_command then
-    return image_converters.get_command(src_path, dest_path, src_ext, dst_ext)
+  local conv_config = converters[conv_type] or default_converters[conv_type]
+  if conv_config and conv_config.get_command then
+    return conv_config.get_command(src_path, dest_path, src_ext, dst_ext)
+  end
+  
+  if conv_type == "video" or conv_type == "audio" then
+    return { "ffmpeg", "-y", "-i", src_path, dest_path }
   end
   
   return { "magick", src_path, dest_path }
