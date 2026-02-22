@@ -722,6 +722,7 @@ M.select = function(opts, callback)
             dest_url = dest_dir,
             dest_name = dest_name,
             archive_type = archive_type,
+            delete_source = false,
           }
           
           local mutator = require("oil.mutator")

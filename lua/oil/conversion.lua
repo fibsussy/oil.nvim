@@ -25,6 +25,9 @@ local default_converters = {
   },
 }
 
+local audio_extensions = { mp3 = true, wav = true, flac = true, aac = true, ogg = true, m4a = true, wma = true, opus = true }
+local video_extensions = { mp4 = true, mkv = true, avi = true, mov = true, webm = true, flv = true, wmv = true, m4v = true }
+
 local video_to_gif_extensions = { gif = true }
 
 local default_extractors = {
@@ -115,12 +118,15 @@ M.is_conversion = function(src_url, dest_url)
     end
   end
   
-  if converters.video and converters.video.extensions then
-    local video_exts = converters.video.extensions
-    if video_exts[src_ext] and video_to_gif_extensions[dst_ext] then
-      return true, "video", src_ext, dst_ext
-    end
-  elseif default_converters.video.extensions[src_ext] and video_to_gif_extensions[dst_ext] then
+  if video_extensions[src_ext] and audio_extensions[dst_ext] then
+    return true, "video", src_ext, dst_ext
+  end
+  
+  if audio_extensions[src_ext] and video_extensions[dst_ext] then
+    return true, "audio", src_ext, dst_ext
+  end
+  
+  if video_extensions[src_ext] and video_to_gif_extensions[dst_ext] then
     return true, "video", src_ext, dst_ext
   end
   
@@ -209,10 +215,30 @@ M.get_conversion_command = function(src_path, dest_path, conv_type, src_ext, dst
   end
   
   if conv_type == "video" or conv_type == "audio" then
+    if video_extensions[src_ext] and audio_extensions[dst_ext] then
+      return { "ffmpeg", "-y", "-vn", "-i", src_path, dest_path }
+    end
     return { "ffmpeg", "-y", "-i", src_path, dest_path }
   end
   
   return { "magick", src_path, dest_path }
+end
+
+M.get_unique_extraction_path = function(dest_path)
+  if vim.fn.isdirectory(dest_path) == 0 then
+    return dest_path
+  end
+  
+  local base = dest_path:gsub("/$", "")
+  local counter = 1
+  local new_path
+  
+  repeat
+    new_path = string.format("%s(%d)/", base, counter)
+    counter = counter + 1
+  until vim.fn.isdirectory(new_path) == 0
+  
+  return new_path
 end
 
 M.list_archive_contents = function(src_path, ext, cb)

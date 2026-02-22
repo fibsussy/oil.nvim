@@ -57,6 +57,7 @@ local FIELD_TYPE = constants.FIELD_TYPE
 ---@field conversion_type string
 ---@field src_ext string
 ---@field dest_ext string
+---@field delete_source boolean
 
 ---@class (exact) oil.ExtractAction
 ---@field type "extract"
@@ -66,6 +67,7 @@ local FIELD_TYPE = constants.FIELD_TYPE
 ---@field dest_name string
 ---@field archive_type string
 ---@field archive_contents? string[] Preview of archive contents
+---@field delete_source boolean
 
 ---@param all_diffs table<integer, oil.Diff[]>
 ---@return oil.Action[]
@@ -193,6 +195,7 @@ M.create_actions_from_diffs = function(all_diffs)
               conversion_type = conv_type,
               src_ext = src_ext,
               dest_ext = dst_ext,
+              delete_source = is_last,
             })
           else
             local is_extract, extract_name = conversion.is_extraction_trigger(dest_url)
@@ -207,6 +210,7 @@ M.create_actions_from_diffs = function(all_diffs)
                   dest_url = dest_dir,
                   dest_name = extract_name,
                   archive_type = archive_type,
+                  delete_source = is_last,
                 })
               else
                 add_action({
@@ -250,6 +254,7 @@ M.create_actions_from_diffs = function(all_diffs)
             conversion_type = conv_type,
             src_ext = src_ext,
             dest_ext = dst_ext,
+            delete_source = false,
           })
         else
           local is_extract, extract_name = conversion.is_extraction_trigger(dest_url)
@@ -264,6 +269,7 @@ M.create_actions_from_diffs = function(all_diffs)
                 dest_url = dest_dir,
                 dest_name = extract_name,
                 archive_type = archive_type,
+                delete_source = false,
               })
             else
               add_action({

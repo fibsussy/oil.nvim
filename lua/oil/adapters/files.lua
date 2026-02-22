@@ -561,21 +561,25 @@ M.render_action = function(action)
     assert(src_path)
     local _, dest_path = util.parse_url(action.dest_url)
     assert(dest_path)
+    local suffix = action.delete_source and " [DELETE SRC]" or ""
     return string.format(
-      "CONVERT %s -> %s (%s -> %s)",
+      "CONVERT %s -> %s (%s -> %s)%s",
       M.to_short_os_path(src_path, action.entry_type),
       M.to_short_os_path(dest_path, action.entry_type),
       action.src_ext,
-      action.dest_ext
+      action.dest_ext,
+      suffix
     )
   elseif action.type == "extract" then
     local _, src_path = util.parse_url(action.src_url)
     assert(src_path)
     local dest_display = action.dest_name or vim.fn.fnamemodify(action.dest_url, ":t")
+    local suffix = action.delete_source and " [DELETE SRC]" or ""
     local line = string.format(
-      "EXTRACT %s -> %s/",
+      "EXTRACT %s -> %s/%s",
       M.to_short_os_path(src_path, action.entry_type),
-      dest_display
+      dest_display,
+      suffix
     )
     if action.archive_contents and #action.archive_contents > 0 then
       local num_files = #action.archive_contents
@@ -714,7 +718,17 @@ M.perform_action = function(action, cb)
     local jid = vim.fn.jobstart(cmd, {
       on_exit = function(_, code)
         if code == 0 then
-          cb()
+          if action.delete_source then
+            vim.loop.fs_unlink(src_path, function(err)
+              if err then
+                cb(string.format("Conversion succeeded but failed to delete source: %s", err))
+              else
+                cb()
+              end
+            end)
+          else
+            cb()
+          end
         else
           cb(string.format("Conversion failed with exit code %d", code))
         end
@@ -731,6 +745,8 @@ M.perform_action = function(action, cb)
     assert(dest_path)
     src_path = fs.posix_to_os_path(src_path)
     dest_path = fs.posix_to_os_path(dest_path)
+    
+    dest_path = conversion.get_unique_extraction_path(dest_path)
     
     local extract_cmd, extract_args, single_file = conversion.get_extract_command(
       src_path, dest_path, action.archive_type
@@ -752,7 +768,17 @@ M.perform_action = function(action, cb)
     local jid = vim.fn.jobstart(full_cmd, {
       on_exit = function(_, code)
         if code == 0 then
-          cb()
+          if action.delete_source then
+            vim.loop.fs_unlink(src_path, function(err)
+              if err then
+                cb(string.format("Extraction succeeded but failed to delete source: %s", err))
+              else
+                cb()
+              end
+            end)
+          else
+            cb()
+          end
         else
           cb(string.format("Extraction failed with exit code %d", code))
         end
