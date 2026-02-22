@@ -2,6 +2,7 @@ local cache = require("oil.cache")
 local columns = require("oil.columns")
 local config = require("oil.config")
 local constants = require("oil.constants")
+local conversion = require("oil.conversion")
 local fs = require("oil.fs")
 local git = require("oil.git")
 local log = require("oil.log")
@@ -555,6 +556,28 @@ M.render_action = function(action)
       -- We should never hit this because we don't implement supported_cross_adapter_actions
       error("files adapter doesn't support cross-adapter move/copy")
     end
+  elseif action.type == "convert" then
+    local _, src_path = util.parse_url(action.src_url)
+    assert(src_path)
+    local _, dest_path = util.parse_url(action.dest_url)
+    assert(dest_path)
+    return string.format(
+      "CONVERT %s -> %s (%s -> %s)",
+      M.to_short_os_path(src_path, action.entry_type),
+      M.to_short_os_path(dest_path, action.entry_type),
+      action.src_ext,
+      action.dest_ext
+    )
+  elseif action.type == "extract" then
+    local _, src_path = util.parse_url(action.src_url)
+    assert(src_path)
+    local _, dest_path = util.parse_url(action.dest_url)
+    assert(dest_path)
+    return string.format(
+      "EXTRACT %s -> %s",
+      M.to_short_os_path(src_path, action.entry_type),
+      M.to_short_os_path(dest_path, "directory")
+    )
   else
     error(string.format("Bad action type: '%s'", action.type))
   end
@@ -654,6 +677,65 @@ M.perform_action = function(action, cb)
     else
       -- We should never hit this because we don't implement supported_cross_adapter_actions
       cb("files adapter doesn't support cross-adapter copy")
+    end
+  elseif action.type == "convert" then
+    local _, src_path = util.parse_url(action.src_url)
+    assert(src_path)
+    local _, dest_path = util.parse_url(action.dest_url)
+    assert(dest_path)
+    src_path = fs.posix_to_os_path(src_path)
+    dest_path = fs.posix_to_os_path(dest_path)
+    
+    local cmd = conversion.get_conversion_command(
+      src_path, dest_path, action.conversion_type, action.src_ext, action.dest_ext
+    )
+    
+    local jid = vim.fn.jobstart(cmd, {
+      on_exit = function(_, code)
+        if code == 0 then
+          cb()
+        else
+          cb(string.format("Conversion failed with exit code %d", code))
+        end
+      end,
+    })
+    
+    if jid <= 0 then
+      cb("Failed to start conversion command")
+    end
+  elseif action.type == "extract" then
+    local _, src_path = util.parse_url(action.src_url)
+    assert(src_path)
+    local _, dest_path = util.parse_url(action.dest_url)
+    assert(dest_path)
+    src_path = fs.posix_to_os_path(src_path)
+    dest_path = fs.posix_to_os_path(dest_path)
+    
+    local extract_cmd, extract_args, single_file = conversion.get_extract_command(
+      src_path, dest_path, action.archive_type
+    )
+    
+    if not extract_cmd then
+      return cb(string.format("No extractor configured for archive type: %s", action.archive_type))
+    end
+    
+    fs.mkdirp(dest_path)
+    
+    local full_cmd = { extract_cmd }
+    vim.list_extend(full_cmd, extract_args)
+    
+    local jid = vim.fn.jobstart(full_cmd, {
+      on_exit = function(_, code)
+        if code == 0 then
+          cb()
+        else
+          cb(string.format("Extraction failed with exit code %d", code))
+        end
+      end,
+    })
+    
+    if jid <= 0 then
+      cb("Failed to start extraction command")
     end
   else
     cb(string.format("Bad action type: %s", action.type))

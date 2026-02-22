@@ -5,6 +5,7 @@ local columns = require("oil.columns")
 local config = require("oil.config")
 local confirmation = require("oil.mutator.confirmation")
 local constants = require("oil.constants")
+local conversion = require("oil.conversion")
 local fs = require("oil.fs")
 local lsp_helpers = require("oil.lsp.helpers")
 local oil = require("oil")
@@ -16,7 +17,7 @@ local M = {}
 local FIELD_NAME = constants.FIELD_NAME
 local FIELD_TYPE = constants.FIELD_TYPE
 
----@alias oil.Action oil.CreateAction|oil.DeleteAction|oil.MoveAction|oil.CopyAction|oil.ChangeAction
+---@alias oil.Action oil.CreateAction|oil.DeleteAction|oil.MoveAction|oil.CopyAction|oil.ChangeAction|oil.ConvertAction|oil.ExtractAction
 
 ---@class (exact) oil.CreateAction
 ---@field type "create"
@@ -47,6 +48,22 @@ local FIELD_TYPE = constants.FIELD_TYPE
 ---@field url string
 ---@field column string
 ---@field value any
+
+---@class (exact) oil.ConvertAction
+---@field type "convert"
+---@field entry_type oil.EntryType
+---@field src_url string
+---@field dest_url string
+---@field conversion_type string
+---@field src_ext string
+---@field dest_ext string
+
+---@class (exact) oil.ExtractAction
+---@field type "extract"
+---@field entry_type oil.EntryType
+---@field src_url string
+---@field dest_url string
+---@field archive_type string
 
 ---@param all_diffs table<integer, oil.Diff[]>
 ---@return oil.Action[]
@@ -160,14 +177,50 @@ M.create_actions_from_diffs = function(all_diffs)
       if has_create then
         -- MOVE (+ optional copies) when has both creates and delete
         for i, diff in ipairs(diffs) do
-          add_action({
-            type = i == #diffs and "move" or "copy",
-            entry_type = entry[FIELD_TYPE],
-            ---HACK: access the dest field we set above
-            ---@diagnostic disable-next-line: undefined-field
-            dest_url = diff.dest,
-            src_url = cache.get_parent_url(id) .. entry[FIELD_NAME],
-          })
+          local src_url = cache.get_parent_url(id) .. entry[FIELD_NAME]
+          local dest_url = diff.dest
+          local is_last = i == #diffs
+          
+          local is_conv, conv_type, src_ext, dst_ext = conversion.is_conversion(src_url, dest_url)
+          if is_conv then
+            add_action({
+              type = "convert",
+              entry_type = entry[FIELD_TYPE],
+              src_url = src_url,
+              dest_url = dest_url,
+              conversion_type = conv_type,
+              src_ext = src_ext,
+              dest_ext = dst_ext,
+            })
+          else
+            local is_extract, extract_src = conversion.is_extraction(dest_url)
+            if is_extract then
+              local src_ext_for_extract = conversion.get_src_extension_for_extraction(src_url)
+              if src_ext_for_extract then
+                add_action({
+                  type = "extract",
+                  entry_type = entry[FIELD_TYPE],
+                  src_url = src_url,
+                  dest_url = dest_url,
+                  archive_type = src_ext_for_extract,
+                })
+              else
+                add_action({
+                  type = is_last and "move" or "copy",
+                  entry_type = entry[FIELD_TYPE],
+                  dest_url = dest_url,
+                  src_url = src_url,
+                })
+              end
+            else
+              add_action({
+                type = is_last and "move" or "copy",
+                entry_type = entry[FIELD_TYPE],
+                dest_url = dest_url,
+                src_url = src_url,
+              })
+            end
+          end
         end
       else
         -- DELETE when no create
@@ -180,14 +233,49 @@ M.create_actions_from_diffs = function(all_diffs)
     else
       -- COPY when create but no delete
       for _, diff in ipairs(diffs) do
-        add_action({
-          type = "copy",
-          entry_type = entry[FIELD_TYPE],
-          src_url = cache.get_parent_url(id) .. entry[FIELD_NAME],
-          ---HACK: access the dest field we set above
-          ---@diagnostic disable-next-line: undefined-field
-          dest_url = diff.dest,
-        })
+        local src_url = cache.get_parent_url(id) .. entry[FIELD_NAME]
+        local dest_url = diff.dest
+        
+        local is_conv, conv_type, src_ext, dst_ext, custom = conversion.is_conversion(src_url, dest_url)
+        if is_conv then
+          add_action({
+            type = "convert",
+            entry_type = entry[FIELD_TYPE],
+            src_url = src_url,
+            dest_url = dest_url,
+            conversion_type = conv_type,
+            src_ext = src_ext,
+            dest_ext = dst_ext,
+          })
+        else
+          local is_extract, extract_src = conversion.is_extraction(dest_url)
+          if is_extract then
+            local src_ext_for_extract = conversion.get_src_extension_for_extraction(src_url)
+            if src_ext_for_extract then
+              add_action({
+                type = "extract",
+                entry_type = entry[FIELD_TYPE],
+                src_url = src_url,
+                dest_url = dest_url,
+                archive_type = src_ext_for_extract,
+              })
+            else
+              add_action({
+                type = "copy",
+                entry_type = entry[FIELD_TYPE],
+                src_url = src_url,
+                dest_url = dest_url,
+              })
+            end
+          else
+            add_action({
+              type = "copy",
+              entry_type = entry[FIELD_TYPE],
+              src_url = src_url,
+              dest_url = dest_url,
+            })
+          end
+        end
       end
     end
   end
@@ -271,6 +359,13 @@ M.enforce_action_order = function(actions)
       dest_trie:accum_children_of(action.src_url, ret)
       -- Process remove path before copying to new path
       -- e.g. MOVE /a -> /b BEFORE COPY /c -> /a
+      src_trie:accum_actions_at(action.dest_url, ret, function(a)
+        return a.type == "move" or a.type == "delete"
+      end)
+    elseif action.type == "convert" or action.type == "extract" then
+      -- Same dependency logic as copy
+      dest_trie:accum_first_parents_of(action.dest_url, ret)
+      dest_trie:accum_children_of(action.src_url, ret)
       src_trie:accum_actions_at(action.dest_url, ret, function(a)
         return a.type == "move" or a.type == "delete"
       end)

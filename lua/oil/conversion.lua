@@ -1,0 +1,196 @@
+local config = require("oil.config")
+local fs = require("oil.fs")
+local log = require("oil.log")
+local util = require("oil.util")
+local M = {}
+
+local default_converters = {
+  image = {
+    extensions = { png = true, jpg = true, jpeg = true, gif = true, webp = true, bmp = true, tiff = true },
+    get_command = function(src, dst, src_ext, dst_ext)
+      return { "magick", src, dst }
+    end,
+  },
+}
+
+local default_extractors = {
+  zip = { cmd = "unzip", args = { "-o", "$SRC", "-d", "$DIR" } },
+  ["tar.gz"] = { cmd = "tar", args = { "-xzf", "$SRC", "-C", "$DIR" } },
+  ["tar.xz"] = { cmd = "tar", args = { "-xJf", "$SRC", "-C", "$DIR" } },
+  ["tar.bz2"] = { cmd = "tar", args = { "-xjf", "$SRC", "-C", "$DIR" } },
+  ["tar"] = { cmd = "tar", args = { "-xf", "$SRC", "-C", "$DIR" } },
+  gz = { cmd = "gunzip", args = { "-k", "$SRC" }, single_file = true },
+  bz2 = { cmd = "bunzip2", args = { "-k", "$SRC" }, single_file = true },
+  xz = { cmd = "unxz", args = { "-k", "$SRC" }, single_file = true },
+}
+
+M.get_file_extension = function(filename)
+  local basename = vim.fs.basename(filename)
+  if not basename then return nil end
+  
+  if basename:match("%.tar%.[^.]+$") then
+    local ext = basename:match("%.tar%.[^.]+$")
+    return ext:sub(2)
+  end
+  
+  local ext = basename:match("%.[^.]+$")
+  if ext then
+    return ext:sub(2):lower()
+  end
+  return nil
+end
+
+M.is_conversion = function(src_url, dest_url)
+  local conversion_config = config.file_conversions
+  if not conversion_config or not conversion_config.enabled then
+    return false
+  end
+  
+  local src_ext = M.get_file_extension(src_url)
+  local dst_ext = M.get_file_extension(dest_url)
+  
+  if not src_ext or not dst_ext then
+    return false
+  end
+  
+  if src_ext == dst_ext then
+    return false
+  end
+  
+  local converters = conversion_config.converters or {}
+  local image_converters = converters.image or default_converters.image
+  
+  if image_converters.extensions[src_ext] and image_converters.extensions[dst_ext] then
+    return true, "image", src_ext, dst_ext
+  end
+  
+  for _, custom in ipairs(converters.custom or {}) do
+    if custom.from:lower() == src_ext and custom.to:lower() == dst_ext then
+      return true, "custom", src_ext, dst_ext, custom
+    end
+  end
+  
+  return false
+end
+
+M.is_extraction = function(dest_url)
+  local conversion_config = config.file_conversions
+  if not conversion_config or not conversion_config.enabled then
+    return false
+  end
+  
+  local _, dst_path = util.parse_url(dest_url)
+  if not dst_path then return false end
+  
+  local dst_ext = M.get_file_extension(dst_path)
+  if not dst_ext then return false end
+  
+  local extractors = conversion_config.extractors or default_extractors
+  
+  local extract_patterns = { "unzip", "untar", "extract", "unpack" }
+  for _, pattern in ipairs(extract_patterns) do
+    if dst_ext == pattern then
+      local basename = vim.fs.basename(dst_path)
+      local src_name = basename:match("^(.+)%." .. pattern .. "$")
+      if src_name then
+        return true, src_name
+      end
+    end
+  end
+  
+  return false
+end
+
+M.get_src_extension_for_extraction = function(src_url)
+  local ext = M.get_file_extension(src_url)
+  local extractors = config.file_conversions and config.file_conversions.extractors or default_extractors
+  return extractors[ext] and ext
+end
+
+M.get_extract_command = function(src_path, dest_dir, ext)
+  local extractors = config.file_conversions and config.file_conversions.extractors or default_extractors
+  local extractor = extractors[ext]
+  if not extractor then return nil end
+  
+  local args = {}
+  for _, arg in ipairs(extractor.args) do
+    arg = arg:gsub("$SRC", src_path)
+    arg = arg:gsub("$DIR", dest_dir)
+    table.insert(args, arg)
+  end
+  
+  return extractor.cmd, args, extractor.single_file
+end
+
+M.get_conversion_command = function(src_path, dest_path, conv_type, src_ext, dst_ext, custom)
+  local converters = config.file_conversions and config.file_conversions.converters or {}
+  
+  if conv_type == "custom" and custom then
+    if type(custom.cmd) == "table" then
+      local cmd = {}
+      for _, part in ipairs(custom.cmd) do
+        part = part:gsub("{src}", src_path)
+        part = part:gsub("{dst}", dest_path)
+        table.insert(cmd, part)
+      end
+      return cmd
+    else
+      local cmd = custom.cmd:gsub("{src}", src_path)
+      cmd = cmd:gsub("{dst}", dest_path)
+      return vim.split(cmd, " ")
+    end
+  end
+  
+  local image_converters = converters.image or default_converters.image
+  if image_converters.get_command then
+    return image_converters.get_command(src_path, dest_path, src_ext, dst_ext)
+  end
+  
+  return { "magick", src_path, dest_path }
+end
+
+M.list_archive_contents = function(src_path, ext, cb)
+  local list_cmd
+  if ext == "zip" then
+    list_cmd = { "unzip", "-l", src_path }
+  elseif ext:match("^tar") then
+    list_cmd = { "tar", "-tf", src_path }
+  else
+    return cb(nil, {})
+  end
+  
+  local contents = {}
+  local jid = vim.fn.jobstart(list_cmd, {
+    stdout_buffered = true,
+    on_stdout = function(_, data)
+      for _, line in ipairs(data) do
+        if line and line ~= "" and not line:match("^%s*$") then
+          if ext == "zip" then
+            local name = line:match("%s+(.+)%s*$")
+            if name and not name:match("^%s*$") and not name:match("/$") then
+              table.insert(contents, name)
+            end
+          else
+            local name = line:match("^[^/]+/(.+)$") or line
+            if name and name ~= "" then
+              table.insert(contents, name)
+            end
+          end
+        end
+      end
+    end,
+    on_exit = function(_, code)
+      if code == 0 then
+        cb(nil, contents)
+      else
+        cb("Failed to list archive contents", nil)
+      end
+    end,
+  })
+  
+  if jid <= 0 then
+    cb("Failed to start archive list command", nil)
+  end
+end
+
+return M

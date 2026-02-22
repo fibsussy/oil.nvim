@@ -194,6 +194,18 @@ M.perform_action = function(action)
     local parent_url = util.addslash(scheme .. vim.fn.fnamemodify(path, ":h"))
     local name = vim.fn.fnamemodify(path, ":t")
     M.create_and_store_entry(parent_url, name, action.entry_type)
+  elseif action.type == "convert" then
+    local scheme, path = util.parse_url(action.dest_url)
+    assert(path)
+    local parent_url = util.addslash(scheme .. vim.fn.fnamemodify(path, ":h"))
+    local name = vim.fn.fnamemodify(path, ":t")
+    M.create_and_store_entry(parent_url, name, action.entry_type)
+  elseif action.type == "extract" then
+    local scheme, path = util.parse_url(action.dest_url)
+    assert(path)
+    local parent_url = util.addslash(scheme .. vim.fn.fnamemodify(path, ":h"))
+    local name = vim.fn.fnamemodify(path, ":t")
+    M.create_and_store_entry(parent_url, name, "directory")
   elseif action.type == "change" then
     -- Cache doesn't need to update
   else

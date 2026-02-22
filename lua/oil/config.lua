@@ -2,6 +2,28 @@ local default_config = {
   -- Oil will take over directory buffers (e.g. `vim .` or `:e src/`)
   -- Set to false if you want some other plugin (e.g. netrw) to open when you edit directories.
   default_file_explorer = true,
+  -- Enable file conversions when copying/moving files with different extensions
+  -- e.g. image.jpeg -> image.png will convert instead of copy
+  -- See :help oil-file-conversions
+  file_conversions = {
+    enabled = true,
+    converters = {
+      image = {
+        extensions = { png = true, jpg = true, jpeg = true, gif = true, webp = true, bmp = true, tiff = true },
+        get_command = function(src, dst, src_ext, dst_ext)
+          return { "magick", src, dst }
+        end,
+      },
+      custom = {},
+    },
+    extractors = {
+      zip = { cmd = "unzip", args = { "-o", "$SRC", "-d", "$DIR" } },
+      ["tar.gz"] = { cmd = "tar", args = { "-xzf", "$SRC", "-C", "$DIR" } },
+      ["tar.xz"] = { cmd = "tar", args = { "-xJf", "$SRC", "-C", "$DIR" } },
+      ["tar.bz2"] = { cmd = "tar", args = { "-xjf", "$SRC", "-C", "$DIR" } },
+      ["tar"] = { cmd = "tar", args = { "-xf", "$SRC", "-C", "$DIR" } },
+    },
+  },
   -- Id is automatically added at the beginning, and name at the end
   -- See :help oil-columns
   columns = {
@@ -221,6 +243,29 @@ default_config.adapter_aliases = {}
 -- here we can get some performance wins
 default_config.view_options.highlight_filename = nil
 
+---@class oil.FileConversionConfig
+---@field enabled boolean
+---@field converters oil.ConverterConfig
+---@field extractors table<string, oil.ExtractorConfig>
+
+---@class oil.ConverterConfig
+---@field image? oil.ImageConverterConfig
+---@field custom? oil.CustomConverterConfig[]
+
+---@class oil.ImageConverterConfig
+---@field extensions table<string, boolean>
+---@field get_command? fun(src: string, dst: string, src_ext: string, dst_ext: string): string[]
+
+---@class oil.CustomConverterConfig
+---@field from string
+---@field to string
+---@field cmd string|string[]
+
+---@class oil.ExtractorConfig
+---@field cmd string
+---@field args string[]
+---@field single_file? boolean
+
 ---@class oil.Config
 ---@field adapters table<string, string> Hidden from SetupOpts
 ---@field adapter_aliases table<string, string> Hidden from SetupOpts
@@ -248,6 +293,7 @@ default_config.view_options.highlight_filename = nil
 ---@field progress oil.ProgressWindowConfig
 ---@field ssh oil.SimpleWindowConfig
 ---@field keymaps_help oil.SimpleWindowConfig
+---@field file_conversions oil.FileConversionConfig
 local M = {}
 
 -- For backwards compatibility
@@ -275,6 +321,9 @@ local M = {}
 ---@field preview_win? oil.SetupPreviewWindowConfig Configuration for the file preview window
 ---@field confirmation? oil.SetupConfirmationWindowConfig Configuration for the floating action confirmation window
 ---@field progress? oil.SetupProgressWindowConfig Configuration for the floating progress window
+---@field ssh? oil.SetupSimpleWindowConfig Configuration for the floating SSH window
+---@field keymaps_help? oil.SetupSimpleWindowConfig Configuration for the floating keymaps help window
+---@field file_conversions? oil.FileConversionConfig Enable file conversions when copying/moving files with different extensions
 ---@field ssh? oil.SetupSimpleWindowConfig Configuration for the floating SSH window
 ---@field keymaps_help? oil.SetupSimpleWindowConfig Configuration for the floating keymaps help window
 
